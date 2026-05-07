@@ -1,0 +1,56 @@
+# 1. 全局基础配置
+worker_processes = 4
+error_log = "/var/log/proxy/error.log"
+
+# 2. Upstreams (对应 HashMap<String, UpstreamConfig>)
+# TOML 中通过 [upstreams.xxx] 来定义 HashMap 的 key
+[upstreams.backend_api]
+servers = ["192.168.1.10:8080", "192.168.1.11:8080", "192.168.1.12:8080"]
+load_balancing = "round_robin"
+
+[upstreams.db_cluster]
+servers = ["10.0.0.1:3306", "10.0.0.2:3306"]
+load_balancing = "least_conn"
+
+# 3. HTTP 块
+[http]
+include_mimes = true
+
+# 对应 Vec<HttpServerConfig>，使用 [[http.servers]] 数组语法
+[[http.servers]]
+listen = "0.0.0.0:80"
+server_name = "www.example.com"
+
+# HashMap<String, String> 非常适合用 TOML 的内联表格 表示
+proxy_set_header = { Host = "$host", X-Real-IP = "$remote_addr", X-Forwarded-For = "$proxy_add_x_forwarded_for" }
+
+# 对应 Vec<LocationConfig>，因为嵌套在 servers 下，所以是 [[http.servers.locations]]
+[[http.servers.locations]]
+path = "/api/v1"
+match_type = "prefix" # 对应 LocationMatch 枚举的无参数变体
+# 对应 LocationAction 枚举！因为带有 String 关联值，这里用对象形式展开
+action = { type = "Proxy", value = "backend_api" }
+
+[[http.servers.locations]]
+path = "/assets"
+match_type = "prefix"
+action = { type = "Static", value = "/usr/share/nginx/html/assets" }
+
+[[http.servers.locations]]
+path = "/exact-match"
+match_type = "exact"
+action = { type = "Static", value = "/var/www/html/index.html" }
+
+
+# 4. Stream 块 (TCP/UDP 代理)
+[stream]
+
+[[stream.servers]]
+listen = "0.0.0.0:3306"
+# 对应 StreamTarget 枚举的 Upstream 变体
+target = { type = "Upstream", value = "db_cluster" }
+
+[[stream.servers]]
+listen = "0.0.0.0:5432"
+# 对应 StreamTarget 枚举的 Direct 变体
+target = { type = "Direct", value = "192.168.1.100:5432" }
