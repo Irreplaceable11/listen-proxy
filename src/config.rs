@@ -1,6 +1,9 @@
+use std::cmp::PartialEq;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use serde::Deserialize;
+use anyhow::{anyhow, Result};
+use regex::Regex;
 
 // 1. 全局配置 (对应 nginx.conf 的顶层指令)
 #[derive(Deserialize, Debug)]
@@ -12,6 +15,30 @@ pub struct MainConfig {
     // 3. 包含 HTTP 和 Stream 块
     pub http: HttpConfig,
     pub stream: StreamConfig,
+}
+
+impl MainConfig {
+
+    pub fn verify_configuration(&self) -> Result<()> {
+        let mut res = Ok(());
+        for http_config in &self.http.servers {
+            http_config.locations.iter().for_each(|location| {
+                if let LocationAction::Proxy(name) = &location.action {
+                    if !&self.upstreams.contains_key(name) {
+                        res = Err(anyhow!(format!("{} not upstream", name)));
+                    }
+                }
+            })
+        }
+        for stream_config in &self.stream.servers {
+            if let StreamTarget::Upstream(name) = &stream_config.target {
+                if !&self.upstreams.contains_key(name) {
+                    res = Err(anyhow!(format!("{} not upstream", name)));
+                }
+            }
+        }
+        res
+    }
 }
 
 // --- Upstream 定义 ---
@@ -36,7 +63,7 @@ pub struct HttpConfig {
     pub servers: Vec<HttpServerConfig>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct HttpServerConfig {
     pub listen: SocketAddr,
     pub server_name: String, // 虚拟主机支持 (e.g., www.example.com)
@@ -45,22 +72,41 @@ pub struct HttpServerConfig {
     pub locations: Vec<LocationConfig>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct LocationConfig {
     pub path: String,
     pub match_type: LocationMatch, // 精确匹配 / 前缀匹配
     // 动作：要么是代理，要么是静态文件
     pub action: LocationAction,
+
+    #[serde(skip)]
+    pub regex: Option<Regex>,
 }
 
-#[derive(Deserialize, Debug)]
+
+impl LocationConfig {
+
+    pub fn is_exact(&self) -> bool {
+        self.match_type == LocationMatch::Exact
+    }
+
+    pub fn is_regex(&self) -> bool {
+        self.match_type == LocationMatch::Regex
+    }
+
+    pub fn is_prefix(&self) -> bool {
+        self.match_type == LocationMatch::Prefix
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type", content = "value")]
 pub enum LocationAction {
     Proxy(String), // 引用 UpstreamConfig 的 name
     Static(String), // 本地文件路径 (root)
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum LocationMatch {
     Prefix,
@@ -74,14 +120,14 @@ pub struct StreamConfig {
     pub servers: Vec<StreamServerConfig>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct StreamServerConfig {
     pub listen: SocketAddr,
     // Stream 也可以引用 Upstream，实现 TCP 负载均衡
     pub target: StreamTarget
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type", content = "value")]
 pub enum StreamTarget {
     Upstream(String),         // 引用 upstreams 里的名字
