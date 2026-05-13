@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 bytes = "1"
-clap = { version = "4", features = ["derive"] }
 hyper = { version = "1", features = ["http1", "server", "client"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
@@ -17,4 +16,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter","fmt", "time"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 regex = "1"
-log = "0.4.29"
+ahash = "0.8.12"

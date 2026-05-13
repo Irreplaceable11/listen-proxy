@@ -6,16 +6,17 @@ use anyhow::Result;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use regex::Regex;
 use time::format_description;
 use time::macros::offset;
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt;
 
-use crate::config::{HttpServerConfig, MainConfig, StreamServerConfig, UpstreamConfig};
+use crate::config::{MainConfig, RuntimeConfig, RuntimeHttpServer, RuntimeStreamServer, StreamServerConfig, UpstreamConfig};
+use crate::upstream::RuntimeUpstream;
 
 mod config;
 mod proxy;
+mod upstream;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +24,7 @@ async fn main() -> Result<()> {
 
     let str_content = fs::read_to_string("proxy-config.toml")?;
 
-    let mut config = match toml::from_str::<MainConfig>(&str_content) {
+    let config = match toml::from_str::<MainConfig>(&str_content) {
         Ok(config) => {
             debug!("config parsed successfully");
             debug!("{:#?}", config);
@@ -35,22 +36,14 @@ async fn main() -> Result<()> {
         }
     };
 
-    config.verify_configuration()?;
+    let runtime_config = RuntimeConfig::try_from(config)?;
 
-    for http in config.http.servers.iter_mut() {
-        for loc in http.locations.iter_mut() {
-            let r = Regex::new(&loc.path)
-                .unwrap_or_else(|_| panic!("Invalid regex in config: {}", loc.path));
-            loc.regex = Some(r);
-        }
-    }
-
-    let MainConfig {
+    let RuntimeConfig {
         upstreams,
         http,
         stream,
         ..
-    } = config;
+    } = runtime_config;
     let upstreams = Arc::new(upstreams);
 
     for server in http.servers {
@@ -88,8 +81,8 @@ async fn init_log() {
 }
 
 async fn listen_http(
-    server: Arc<HttpServerConfig>,
-    upstreams: Arc<HashMap<String, UpstreamConfig>>,
+    server: Arc<RuntimeHttpServer>,
+    upstreams: Arc<HashMap<String, RuntimeUpstream>>,
 ) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(server.listen).await?;
     info!("http listening on {}", server.listen);
@@ -104,7 +97,7 @@ async fn listen_http(
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
-                proxy::handler_http(req, Arc::clone(&server), Arc::clone(&upstreams))
+                proxy::handler_http(req, Arc::clone(&server), Arc::clone(&upstreams), addr)
             });
 
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
@@ -114,7 +107,7 @@ async fn listen_http(
     }
 }
 
-async fn listen_stream(server: StreamServerConfig) -> Result<()> {
+async fn listen_stream(server: RuntimeStreamServer) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(server.listen).await?;
     info!("stream listening on {}", server.listen);
 

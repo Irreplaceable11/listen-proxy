@@ -58,3 +58,17 @@
 - 使用 anyhow 处理应用入口层错误，使用 thiserror 定义领域错误。
 - 在学习阶段优先保持依赖少而清晰，只有当复杂度明显上升时再引入更高级框架。
 - 当问题涉及第三方库/API 文档、配置步骤或代码示例时，优先使用 Context7 MCP 查询最新官方资料。
+
+## Commit Message 规则
+- 以后生成 commit message 时，使用 Conventional Commits 风格。
+- 标题格式为：`<type>: <summary>`。
+- 常用 type 包括：
+  - `feat`: 新功能或用户可见能力。
+  - `fix`: bug 修复。
+  - `perf`: 性能优化。
+  - `refactor`: 不改变行为的重构。
+  - `docs`: 文档变更。
+  - `test`: 测试相关变更。
+  - `chore`: 构建、依赖、工具或杂项维护。
+- summary 使用英文，简洁描述本次提交的核心变化。
+- 如果需要 body，也使用英文，按要点说明主要改动和验证结果。
