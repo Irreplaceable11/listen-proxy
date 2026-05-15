@@ -219,7 +219,6 @@ pub struct RuntimeLocation {
 }
 
 impl RuntimeLocation {
-
     pub fn is_exact(&self) -> bool {
         self.match_type == LocationMatch::Exact
     }

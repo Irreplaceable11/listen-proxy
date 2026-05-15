@@ -1,14 +1,14 @@
 use crate::config::{LbMethod, UpstreamConfig};
+use ahash::RandomState;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use ahash::RandomState;
 
 #[derive(Debug)]
 pub struct RuntimeUpstream {
     pub servers: Vec<SocketAddr>,
     pub load_balancing: LbMethod,
     pub round_robin_index: AtomicUsize,
-    pub state: RandomState
+    pub state: RandomState,
 }
 
 impl RuntimeUpstream {
@@ -17,11 +17,11 @@ impl RuntimeUpstream {
             servers: config.servers,
             load_balancing: config.load_balancing,
             round_robin_index: AtomicUsize::new(0),
-            state: RandomState::with_seed(0)
+            state: RandomState::with_seed(0),
         }
     }
 
-    pub fn select_server(&self,  remote_addr: Option<SocketAddr>) -> Option<SocketAddr> {
+    pub fn select_server(&self, remote_addr: Option<SocketAddr>) -> Option<SocketAddr> {
         if self.servers.is_empty() {
             return None;
         }
@@ -32,7 +32,7 @@ impl RuntimeUpstream {
             LbMethod::IpHash => {
                 let ip = remote_addr?.ip();
                 self.select_ip_hash(ip)
-            },
+            }
         }
     }
 
@@ -52,18 +52,15 @@ impl RuntimeUpstream {
         Some(self.servers[index])
     }
 
-
     fn key_from_addr_and_ua(addr: SocketAddr, ua: &str) -> Vec<u8> {
         let ip_bytes = match addr.ip() {
-            std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
-            std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
+            IpAddr::V4(ip) => ip.octets().to_vec(),
+            IpAddr::V6(ip) => ip.octets().to_vec(),
         };
 
         let ua_bytes = ua.as_bytes();
 
-        let mut key = Vec::with_capacity(
-            ip_bytes.len() + 4 + ua_bytes.len()
-        );
+        let mut key = Vec::with_capacity(ip_bytes.len() + 4 + ua_bytes.len());
 
         // 写入 IP
         key.extend_from_slice(&ip_bytes);

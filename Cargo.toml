@@ -17,3 +17,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter","fmt", "time"] 
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 regex = "1"
 ahash = "0.8.12"
+dunce = "1.0"

@@ -1,21 +1,23 @@
 use crate::config::{
-    LocationAction, LocationMatch, RuntimeHttpServer,
-    RuntimeLocation, RuntimeProxyHeader,
+    LocationAction, LocationMatch, RuntimeHttpServer, RuntimeLocation, RuntimeProxyHeader,
 };
+use crate::upstream::RuntimeUpstream;
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::header::{HOST, HeaderValue};
+use hyper::header::{HOST, HeaderName, HeaderValue};
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use hyper_util::rt::TokioIo;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
-use crate::upstream::RuntimeUpstream;
+
+const X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
 
 pub async fn handler_http(
     req: Request<Incoming>,
@@ -45,17 +47,89 @@ pub async fn handler_http(
                     return Ok(error_response(StatusCode::BAD_GATEWAY, "bad gateway"));
                 }
             }
-            LocationAction::Static(path) => {
-                return Ok(Response::new(
-                    Full::new(Bytes::from(format!("static path {}", path)))
-                        .map_err(|never| match never {})
-                        .boxed(),
-                ));
+            LocationAction::Static(root) => {
+                return Ok(serve_static_file(req_path, &loc.path, root).await);
             }
         }
     }
 
     Ok(full_response("hello"))
+}
+
+async fn serve_static_file(
+    req_path: &str,
+    location_path: &str,
+    root: &str,
+) -> Response<BoxBody<Bytes, hyper::Error>> {
+    let relative_path = req_path
+        .strip_prefix(location_path)
+        .unwrap_or("")
+        .trim_start_matches('/');
+
+    let root_path = match dunce::canonicalize(PathBuf::from(root)) {
+        Ok(path) => path,
+        Err(_) => return error_response(StatusCode::NOT_FOUND, "not found"),
+    };
+    let mut candidate_path = root_path.join(relative_path);
+
+    if candidate_path.is_dir() {
+        candidate_path.push("index.html");
+    }
+
+    let file_path = match dunce::canonicalize(&candidate_path) {
+        Ok(path) => path,
+        Err(_) => {
+            let index_path = root_path.join("index.html");
+            match dunce::canonicalize(index_path) {
+                Ok(path) => path,
+                Err(_) => return error_response(StatusCode::NOT_FOUND, "not found"),
+            }
+        }
+    };
+
+    if !file_path.starts_with(&root_path) {
+        return error_response(StatusCode::FORBIDDEN, "forbidden");
+    }
+
+    let content = match tokio::fs::read(&file_path).await {
+        Ok(content) => content,
+        Err(_) => {
+            return error_response(StatusCode::NOT_FOUND, "not found");
+        }
+    };
+
+    let mut response = Response::new(
+        Full::new(Bytes::from(content))
+            .map_err(|never| match never {})
+            .boxed(),
+    );
+
+    if let Some(content_type) = guess_content_type(&file_path) {
+        response
+            .headers_mut()
+            .insert(hyper::header::CONTENT_TYPE, content_type.parse().unwrap());
+    }
+
+    response
+}
+
+fn guess_content_type(path: &std::path::Path) -> Option<&'static str> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("html") => Some("text/html; charset=utf-8"),
+        Some("css") => Some("text/css; charset=utf-8"),
+        Some("js") => Some("application/javascript; charset=utf-8"),
+        Some("json") => Some("application/json; charset=utf-8"),
+        Some("png") => Some("image/png"),
+        Some("jpg") | Some("jpeg") => Some("image/jpeg"),
+        Some("svg") => Some("image/svg+xml"),
+        Some("gif") => Some("image/gif"),
+        Some("ico") => Some("image/x-icon"),
+        Some("mp3") => Some("audio/mpeg"),
+        Some("woff") => Some("font/woff"),
+        Some("woff2") => Some("font/woff2"),
+        Some("txt") => Some("text/plain; charset=utf-8"),
+        _ => None,
+    }
 }
 
 async fn proxy_to_upstream(
@@ -189,6 +263,31 @@ fn apply_proxy_headers(
             match HeaderValue::try_from(remote_addr.ip().to_string()) {
                 Ok(value) => value,
                 Err(_) => continue,
+            }
+        } else if header.value == "$proxy_add_x_forwarded_for" {
+            match header_map.get(X_FORWARDED_FOR) {
+                None => match HeaderValue::try_from(remote_addr.ip().to_string()) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                },
+                Some(v) => {
+                    let existing = match v.to_str() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    let remote_ip = remote_addr.ip().to_string();
+
+                    let mut new_val = String::with_capacity(existing.len() + 2 + remote_ip.len());
+                    new_val.push_str(existing);
+                    new_val.push_str(", ");
+                    new_val.push_str(&remote_ip);
+
+                    match HeaderValue::from_str(&new_val) {
+                        Ok(value) => value,
+                        Err(_) => continue,
+                    }
+                }
             }
         } else {
             match header.value.parse() {

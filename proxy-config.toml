@@ -18,8 +18,8 @@ include_mimes = true
 
 # 对应 Vec<HttpServerConfig>，使用 [[http.servers]] 数组语法
 [[http.servers]]
-listen = "127.0.0.1:3000"
-server_name = "www.example.com"
+listen = "127.0.0.1:3100"
+server_name = "localhost"
 
 # HashMap<String, String> 非常适合用 TOML 的内联表格 表示
 proxy_set_header = { Host = "$host", X-Real-IP = "$remote_addr", X-Forwarded-For = "$proxy_add_x_forwarded_for" }
@@ -32,14 +32,14 @@ match_type = "prefix" # 对应 LocationMatch 枚举的无参数变体
 action = { type = "Proxy", value = "backend_api" }
 
 [[http.servers.locations]]
-path = "/assets"
+path = "/"
 match_type = "prefix"
-action = { type = "Static", value = "/usr/share/nginx/html/assets" }
+action = { type = "Static", value = "D:/workspace/data-qc/data-qc-web/dist-prod" }
 
 [[http.servers.locations]]
-path = "/exact-match"
-match_type = "exact"
-action = { type = "Static", value = "/var/www/html/index.html" }
+path = "/sxwjwypjc"
+match_type = "prefix"
+action = { type = "Static", value = "D:/workspace/data-qc/data-qc-web/dist-prod" }
 
 
 # 4. Stream 块 (TCP/UDP 代理)

@@ -11,7 +11,7 @@ use time::macros::offset;
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt;
 
-use crate::config::{MainConfig, RuntimeConfig, RuntimeHttpServer, RuntimeStreamServer, StreamServerConfig, UpstreamConfig};
+use crate::config::{MainConfig, RuntimeConfig, RuntimeHttpServer, RuntimeStreamServer};
 use crate::upstream::RuntimeUpstream;
 
 mod config;
